@@ -1,0 +1,38 @@
+# AgentLint Configuration File
+# This file contains the default configuration for AgentLint
+
+rules:
+  # Large function detection
+  functionSize:
+    enabled: true
+    maxLines: 50  # Maximum number of lines for a function
+
+  # Large file detection
+  fileSize:
+    enabled: true
+    maxLines: 500  # Maximum number of lines for a file
+
+  # Overcommenting detection
+  overcommenting:
+    enabled: true
+    maxCommentRatio: 0.3  # Maximum comment-to-code ratio
+    checkRedundant: true   # Check for redundant comments
+    checkDocCoverage: true # Check for missing documentation
+
+  # Orphaned code detection
+  orphanedCode:
+    enabled: true
+    checkUnusedFunctions: true   # Check for unused functions
+    checkUnusedVariables: true   # Check for unused variables
+    checkUnreachableCode: true   # Check for unreachable code
+    checkDeadImports: true       # Check for unused imports
+
+# Output configuration
+output:
+  format: "console"  # Output format: console, json
+  verbose: false     # Enable verbose output
+
+# Language-specific configuration
+language:
+  go:
+    ignoreTests: false  # Ignore test files during analysis
