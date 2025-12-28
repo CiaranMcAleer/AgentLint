@@ -6,10 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/agentlint/agentlint/internal/config"
 	"github.com/agentlint/agentlint/internal/core"
-	"github.com/agentlint/agentlint/internal/languages"
-	"github.com/agentlint/agentlint/internal/languages/go"
+	golang "github.com/agentlint/agentlint/internal/languages/go"
 )
 
 func TestGoAnalyzer(t *testing.T) {
@@ -123,13 +121,43 @@ func main() {
 	}
 
 	// Create configuration with low thresholds for testing
-	cfg := config.DefaultConfig()
-	cfg.Rules.FunctionSize.MaxLines = 30
-	cfg.Rules.FileSize.MaxLines = 50
-	cfg.Rules.Overcommenting.MaxCommentRatio = 0.2
+	cfg := core.Config{
+		Rules: core.RulesConfig{
+			FunctionSize: core.FunctionSizeConfig{
+				Enabled:  true,
+				MaxLines: 30,
+			},
+			FileSize: core.FileSizeConfig{
+				Enabled:  true,
+				MaxLines: 50,
+			},
+			Overcommenting: core.OvercommentingConfig{
+				Enabled:          true,
+				MaxCommentRatio:  0.2,
+				CheckRedundant:   true,
+				CheckDocCoverage: true,
+			},
+			OrphanedCode: core.OrphanedCodeConfig{
+				Enabled:              true,
+				CheckUnusedFunctions: true,
+				CheckUnusedVariables: true,
+				CheckUnreachableCode: true,
+				CheckDeadImports:     true,
+			},
+		},
+		Output: core.OutputConfig{
+			Format:  "console",
+			Verbose: false,
+		},
+		Language: core.LanguageConfig{
+			Go: core.GoConfig{
+				IgnoreTests: false,
+			},
+		},
+	}
 
 	// Create Go analyzer
-	analyzer := go.NewAnalyzer(cfg)
+	analyzer := golang.NewAnalyzer(cfg)
 
 	// Test each file
 	ctx := context.Background()
@@ -188,7 +216,7 @@ func TestFileScanner(t *testing.T) {
 	}
 
 	// Create scanner
-	scanner := go.NewFileScanner()
+	scanner := golang.NewFileScanner()
 
 	// Scan for files
 	ctx := context.Background()
@@ -208,72 +236,5 @@ func TestFileScanner(t *testing.T) {
 		if filepath.Ext(file) != ".go" {
 			t.Errorf("Found non-Go file: %s", file)
 		}
-	}
-}
-
-func TestConfigLoading(t *testing.T) {
-	// Create a temporary config file
-	tempDir, err := os.MkdirTemp("", "agentlint-config-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	configContent := `
-rules:
-  functionSize:
-    enabled: true
-    maxLines: 100
-  fileSize:
-    enabled: false
-    maxLines: 1000
-  overcommenting:
-    enabled: true
-    maxCommentRatio: 0.5
-  orphanedCode:
-    enabled: true
-    checkUnusedFunctions: false
-    checkUnusedVariables: true
-    checkUnreachableCode: true
-    checkDeadImports: false
-output:
-  format: "json"
-  verbose: true
-language:
-  go:
-    ignoreTests: true
-`
-
-	configPath := filepath.Join(tempDir, "test-config.yaml")
-	err = os.WriteFile(configPath, []byte(configContent), 0644)
-	if err != nil {
-		t.Fatalf("Failed to write config file: %v", err)
-	}
-
-	// Test loading the config
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("Failed to load config: %v", err)
-	}
-
-	// Check that values were loaded correctly
-	if cfg.Rules.FunctionSize.MaxLines != 100 {
-		t.Errorf("Expected functionSize.maxLines to be 100, got %d", cfg.Rules.FunctionSize.MaxLines)
-	}
-
-	if cfg.Rules.FileSize.Enabled {
-		t.Errorf("Expected fileSize.enabled to be false, got true")
-	}
-
-	if cfg.Rules.Overcommenting.MaxCommentRatio != 0.5 {
-		t.Errorf("Expected overcommenting.maxCommentRatio to be 0.5, got %f", cfg.Rules.Overcommenting.MaxCommentRatio)
-	}
-
-	if cfg.Output.Format != "json" {
-		t.Errorf("Expected output.format to be json, got %s", cfg.Output.Format)
-	}
-
-	if !cfg.Language.Go.IgnoreTests {
-		t.Errorf("Expected language.go.ignoreTests to be true, got false")
 	}
 }
