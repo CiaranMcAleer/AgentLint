@@ -3,6 +3,8 @@ package rules
 import (
 	"context"
 	"fmt"
+	"go/ast"
+	"go/token"
 	"strings"
 
 	"github.com/agentlint/agentlint/internal/core"
@@ -52,16 +54,20 @@ func (r *UnusedFunctionRule) Check(ctx context.Context, node interface{}, config
 	}
 
 	switch n := node.(type) {
-	case *UnusedFunctionAnalysis:
-		if n.IsUnused && !n.IsExported && !strings.HasSuffix(n.Name, "Test") && !strings.HasPrefix(n.Name, "Example") {
+	case *FunctionMetrics:
+		if !n.Exported &&
+			!strings.HasSuffix(n.Name, "Test") &&
+			!strings.HasPrefix(n.Name, "Benchmark") &&
+			!strings.HasPrefix(n.Name, "Example") &&
+			n.Name != "main" {
 			return &core.Result{
 				RuleID:     r.ID(),
 				RuleName:   r.Name(),
 				Category:   string(r.Category()),
 				Severity:   string(r.Severity()),
-				Line:       n.Line,
-				Message:    fmt.Sprintf("Function '%s' is defined but never used", n.Name),
-				Suggestion: fmt.Sprintf("Consider removing function '%s' or using it somewhere in the codebase", n.Name),
+				Line:       n.Position.Line,
+				Message:    fmt.Sprintf("Function '%s' may be unused (non-exported and not a test/benchmark/main)", n.Name),
+				Suggestion: fmt.Sprintf("Consider reviewing if function '%s' is needed or add it to exports if intended for external use", n.Name),
 			}
 		}
 	}
@@ -112,21 +118,6 @@ func (r *UnusedVariableRule) Check(ctx context.Context, node interface{}, config
 		return nil
 	}
 
-	switch n := node.(type) {
-	case *UnusedVariableAnalysis:
-		if n.IsUnused {
-			return &core.Result{
-				RuleID:     r.ID(),
-				RuleName:   r.Name(),
-				Category:   string(r.Category()),
-				Severity:   string(r.Severity()),
-				Line:       n.Line,
-				Message:    fmt.Sprintf("Variable '%s' is declared but never used", n.Name),
-				Suggestion: fmt.Sprintf("Consider removing variable '%s' or using it somewhere in the code", n.Name),
-			}
-		}
-	}
-
 	return nil
 }
 
@@ -174,15 +165,20 @@ func (r *UnreachableCodeRule) Check(ctx context.Context, node interface{}, confi
 	}
 
 	switch n := node.(type) {
-	case *UnreachableCodeAnalysis:
-		return &core.Result{
-			RuleID:     r.ID(),
-			RuleName:   r.Name(),
-			Category:   string(r.Category()),
-			Severity:   string(r.Severity()),
-			Line:       n.Line,
-			Message:    "Code after return statement is unreachable",
-			Suggestion: "Remove the unreachable code",
+	case *ast.BlockStmt:
+		stmts := n.List
+		for i := 0; i < len(stmts)-1; i++ {
+			if _, ok := stmts[i].(*ast.ReturnStmt); ok {
+				return &core.Result{
+					RuleID:     r.ID(),
+					RuleName:   r.Name(),
+					Category:   string(r.Category()),
+					Severity:   string(r.Severity()),
+					Line:       0,
+					Message:    "Unreachable code detected after return statement",
+					Suggestion: "Remove the unreachable code",
+				}
+			}
 		}
 	}
 
@@ -233,16 +229,19 @@ func (r *DeadImportRule) Check(ctx context.Context, node interface{}, config cor
 	}
 
 	switch n := node.(type) {
-	case *DeadImportAnalysis:
-		if n.IsUnused {
-			return &core.Result{
-				RuleID:     r.ID(),
-				RuleName:   r.Name(),
-				Category:   string(r.Category()),
-				Severity:   string(r.Severity()),
-				Line:       n.Line,
-				Message:    fmt.Sprintf("Import '%s' is never used", n.Path),
-				Suggestion: fmt.Sprintf("Remove the unused import '%s'", n.Path),
+	case *ast.File:
+		for _, imp := range n.Imports {
+			if !isImportUsed(n, imp) {
+				path := imp.Path.Value
+				return &core.Result{
+					RuleID:     r.ID(),
+					RuleName:   r.Name(),
+					Category:   string(r.Category()),
+					Severity:   string(r.Severity()),
+					Line:       0,
+					Message:    fmt.Sprintf("Import %s appears to be unused", path),
+					Suggestion: "Remove the unused import",
+				}
 			}
 		}
 	}
@@ -250,14 +249,30 @@ func (r *DeadImportRule) Check(ctx context.Context, node interface{}, config cor
 	return nil
 }
 
-// Analysis result types for orphaned code detection
+func isImportUsed(file *ast.File, imp *ast.ImportSpec) bool {
+	importPath := imp.Path.Value
 
-// UnusedFunctionAnalysis contains analysis results for unused function detection
-type UnusedFunctionAnalysis struct {
-	Name      string
-	IsUnused  bool
-	IsExported bool
-	Line      int
+	fileAst := *file
+	ast.Inspect(&fileAst, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.SelectorExpr:
+			if ident, ok := node.X.(*ast.Ident); ok {
+				pkgPath := ident.Name
+				if pkgPath == importPath || pkgPath == "fmt" {
+					return false
+				}
+			}
+		case *ast.BasicLit:
+			if node.Kind == token.STRING {
+				if node.Value == importPath {
+					return false
+				}
+			}
+		}
+		return true
+	})
+
+	return true
 }
 
 // UnusedVariableAnalysis contains analysis results for unused variable detection
