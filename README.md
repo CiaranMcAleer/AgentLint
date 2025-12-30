@@ -1,26 +1,49 @@
-# AgentLint
+# AgentLint: A Static Analysis Tool for Detecting LLM-Generated Code Anti-Patterns
 
-A CLI-based linter written in Go, designed to detect LLM-generated code bad smells. The MVP focuses on Go projects with a flexible architecture to support multiple languages in the future.
+## Abstract
 
-## Features
+AgentLint is a command-line static analysis tool designed to identify code quality issues commonly introduced by large language model code generators. The tool implements a modular architecture supporting multiple detection rules organized into three categories: size violations, documentation anti-patterns, and orphaned code artifacts. This document describes the tool's design, configuration options, and detection capabilities.
 
-- **Large Function Detection**: Flags functions that exceed configurable line limits
-- **Large File Detection**: Identifies files that are too large
-- **Overcommenting Analysis**: Detects excessive comments and redundant documentation
-- **Orphaned Code Detection**: Finds unused functions, variables, unreachable code, and dead imports
-- **Configurable Rules**: All detection rules are configurable via YAML files
-- **Multiple Output Formats**: Supports console and JSON output formats
-- **Extensible Architecture**: Designed for easy addition of new languages and rules
+## 1. Introduction
 
-## Installation
+The proliferation of large language models for code generation has introduced a new category of code quality concerns. Generated code frequently exhibits patterns that, while syntactically correct, violate established software engineering practices. These patterns include excessively large functions, excessive commenting that reduces signal-to-noise ratio, and the retention of unused code artifacts.
+
+AgentLint addresses these concerns through automated static analysis. The tool processes Go source code files and reports violations of configurable quality thresholds. The architecture is designed for extensibility, enabling future support for additional programming languages and detection rules.
+
+## 2. Features
+
+AgentLint provides the following detection capabilities:
+
+**Size Analysis**
+- Large Function Detection: Identifies functions exceeding configurable line thresholds
+- Large File Detection: Identifies source files exceeding configurable line thresholds
+
+**Documentation Analysis**
+- Overcommenting Detection: Calculates comment-to-code ratios and flags excessive documentation
+- Redundant Comment Identification: Detects comments that merely restate code functionality
+- Missing Documentation Detection: Flags exported functions lacking documentation
+
+**Code Quality Analysis**
+- Unused Function Detection: Identifies functions that are defined but not referenced
+- Unused Variable Detection: Identifies variables declared but not utilized
+- Unreachable Code Detection: Identifies code paths that cannot be executed
+- Dead Import Detection: Identifies import statements that are not referenced
+
+## 3. Installation
+
+AgentLint is distributed as a Go binary. Installation is performed via the Go toolchain:
 
 ```bash
 go install github.com/agentlint/agentlint/cmd/agentlint@latest
 ```
 
-## Usage
+The binary is installed to `$GOPATH/bin` and is immediately available for use.
 
-### Basic Usage
+## 4. Usage
+
+### 4.1 Basic Usage
+
+The tool operates on directories containing Go source code:
 
 ```bash
 # Analyze the current directory
@@ -36,22 +59,24 @@ agentlint -config agentlint.yaml ./myproject
 agentlint -format json -output report.json ./myproject
 ```
 
-### Command Line Options
+### 4.2 Command Line Options
 
-```
--config string    Path to configuration file
--format string    Output format (console, json) (default "console")
--output string    Output file (default: stdout)
--verbose          Verbose output
--version          Show version information
--help             Show help information
-```
+The following command line options are available:
 
-## Configuration
+| Option | Description | Default |
+|--------|-------------|---------|
+| -config | Path to configuration file | agentlint.yaml |
+| -format | Output format (console, json) | console |
+| -output | Output file path | stdout |
+| -verbose | Enable verbose output | false |
+| -version | Display version information | - |
+| -help | Display help information | - |
 
-AgentLint uses a YAML configuration file to customize rule behavior. If no configuration file is provided, it will look for `agentlint.yaml` or `agentlint.yml` in the current directory.
+## 5. Configuration
 
-### Example Configuration
+AgentLint behavior is controlled through YAML configuration files. The tool searches for `agentlint.yaml` or `agentlint.yml` in the current directory when no explicit configuration is provided.
+
+### 5.1 Configuration Schema
 
 ```yaml
 rules:
@@ -85,29 +110,71 @@ language:
     ignoreTests: false
 ```
 
-## Detection Rules
+### 5.2 Rule Configuration
 
-### Size Rules
+Each rule category supports the following options:
 
-- **Large Function**: Detects functions with more than the configured number of lines
-- **Large File**: Detects files with more than the configured number of lines
+**functionSize**: Controls large function detection
+- `enabled`: Enable or disable the rule
+- `maxLines`: Maximum permitted function size
 
-### Comment Rules
+**fileSize**: Controls large file detection
+- `enabled`: Enable or disable the rule
+- `maxLines`: Maximum permitted file size
 
-- **Overcommenting**: Flags files with excessive comment-to-code ratios
-- **Redundant Comments**: Identifies comments that simply restate what the code does
-- **Missing Documentation**: Flags exported functions without documentation
+**overcommenting**: Controls documentation analysis
+- `enabled`: Enable or disable the rule
+- `maxCommentRatio`: Maximum comment-to-code ratio (0.0 to 1.0)
+- `checkRedundant`: Enable redundant comment detection
+- `checkDocCoverage`: Enable missing documentation detection
 
-### Orphaned Code Rules
+**orphanedCode**: Controls code quality analysis
+- `enabled`: Enable or disable the rule
+- `checkUnusedFunctions`: Enable unused function detection
+- `checkUnusedVariables`: Enable unused variable detection
+- `checkUnreachableCode`: Enable unreachable code detection
+- `checkDeadImports`: Enable dead import detection
 
-- **Unused Functions**: Finds functions that are defined but never called
-- **Unused Variables**: Identifies variables that are declared but never used
-- **Unreachable Code**: Detects code that can never be executed
-- **Dead Imports**: Finds import statements that are never used
+## 6. Detection Rules
 
-## Output Formats
+### 6.1 Size Rules
 
-### Console Output
+**Large Function Rule**
+Detects functions exceeding the configured line threshold. Functions exceeding this threshold typically indicate excessive complexity and should be decomposed into smaller, focused units.
+
+**Large File Rule**
+Detects files exceeding the configured line threshold. Large files often indicate poor code organization and should be split into multiple focused modules.
+
+### 6.2 Documentation Rules
+
+**Overcommenting Rule**
+Calculates the ratio of comment lines to code lines. Files exceeding the configured ratio are flagged as potentially over-documented. Excessive commenting can reduce code readability by obscuring the actual implementation.
+
+**Redundant Comment Rule**
+Identifies comments that restate code functionality without adding semantic value. Examples include comments that merely translate variable names or restate control flow logic.
+
+**Missing Documentation Rule**
+Identifies exported (public) functions lacking documentation comments. This rule enforces documentation standards for public APIs.
+
+### 6.3 Orphaned Code Rules
+
+**Unused Function Rule**
+Identifies functions that are defined but not referenced within the analyzed codebase. Note that this analysis is performed on a per-file basis and may not detect cross-file references.
+
+**Unused Variable Rule**
+Identifies variables that are declared but never used. While the Go compiler enforces unused variable detection for local variables, this rule provides additional analysis capabilities.
+
+**Unreachable Code Rule**
+Identifies code statements following unconditional return statements. Such code represents logical errors and should be removed.
+
+**Dead Import Rule**
+Identifies import statements that are not referenced within the file. Unused imports should be removed to reduce compilation overhead and improve maintainability.
+
+## 7. Output Formats
+
+### 7.1 Console Output
+
+The console formatter provides human-readable output organized by file:
 
 ```
 AgentLint - LLM Code Smell Detector
@@ -127,7 +194,9 @@ Summary:
 Analysis complete.
 ```
 
-### JSON Output
+### 7.2 JSON Output
+
+The JSON formatter provides structured output suitable for integration with other tools:
 
 ```json
 {
@@ -155,22 +224,64 @@ Analysis complete.
 }
 ```
 
-## Architecture
+## 8. Architecture
 
-AgentLint is built with a modular, language-agnostic architecture:
+AgentLint is built on a modular, language-agnostic architecture comprising the following components:
 
-- **Core Framework**: Language-agnostic interfaces and types
-- **Language Support**: Pluggable language analyzers (currently Go)
-- **Rule Engine**: Extensible rule system for detecting code smells
-- **Configuration**: Flexible YAML-based configuration
-- **Output Formatters**: Multiple output format support
+**Core Framework**
+Provides language-agnostic interfaces and type definitions. This layer defines theAnalyzer and Rule interfaces that all language implementations must satisfy.
 
-The architecture is designed to make adding new languages and rules straightforward, enabling future expansion beyond Go.
+**Language Support**
+Pluggable analyzer implementations for different programming languages. The current implementation supports Go. Additional language support can be added by implementing the Analyzer interface.
 
-## Contributing
+**Rule Engine**
+Extensible rule system for detecting code quality issues. Rules are organized into categories and implement the Rule interface. New rules can be added without modifying core components.
 
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+**Configuration Management**
+YAML-based configuration system with support for rule-specific parameters. Configuration is validated at startup and defaults are applied for unspecified options.
 
-## License
+**Output Formatters**
+Multiple output format support through a formatter interface. The console formatter provides human-readable output while the JSON formatter provides structured data suitable for programmatic processing.
 
-This project is released into the public domain. See the [LICENSE](LICENSE) file for details.
+## 9. Extending AgentLint
+
+The architecture supports extension in two primary dimensions:
+
+### 9.1 Adding New Rules
+
+New rules are implemented by satisfying the Rule interface:
+
+```go
+type Rule interface {
+    ID() string
+    Name() string
+    Description() string
+    Category() RuleCategory
+    Severity() Severity
+    Check(ctx context.Context, node interface{}, config Config) *Result
+}
+```
+
+Rules are registered with the analyzer during initialization.
+
+### 9.2 Adding New Languages
+
+New language support requires implementing the Analyzer interface:
+
+```go
+type Analyzer interface {
+    Analyze(ctx context.Context, filePath string, config Config) ([]Result, error)
+    SupportedExtensions() []string
+    Name() string
+}
+```
+
+The analyzer handles file parsing and metric calculation, then delegates to registered rules for issue detection.
+
+## 10. Contributing
+
+Contributions are welcome. For significant changes, please open an issue to discuss the proposed modifications before implementation. Pull requests should include appropriate test coverage and documentation updates.
+
+## 11. License
+
+This project is released into the public domain. See the LICENSE file for details.
