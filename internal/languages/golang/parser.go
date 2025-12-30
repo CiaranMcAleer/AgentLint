@@ -11,12 +11,13 @@ import (
 	"strings"
 
 	"github.com/agentlint/agentlint/internal/core"
+	"github.com/agentlint/agentlint/internal/languages/golang/rules"
 )
 
 // Parser handles parsing Go source code into ASTs
 type Parser struct {
-	fset    *token.FileSet
-	config  core.Config
+	fset   *token.FileSet
+	config core.Config
 }
 
 // NewParser creates a new Go parser
@@ -58,31 +59,18 @@ func (p *Parser) shouldIgnoreFile(filePath string) bool {
 			return true
 		}
 	}
-	
+
 	// Ignore files with _ in front (like _generated.go)
 	base := filepath.Base(filePath)
 	if strings.HasPrefix(base, "_") {
 		return true
 	}
-	
+
 	return false
 }
 
-// FileMetrics contains metrics about a Go file
-type FileMetrics struct {
-	Path           string
-	TotalLines     int
-	CodeLines      int
-	CommentLines   int
-	BlankLines     int
-	CommentRatio   float64
-	FunctionCount  int
-	ImportCount    int
-	ExportedCount  int
-}
-
 // CalculateMetrics calculates various metrics for a Go file
-func (p *Parser) CalculateMetrics(ctx context.Context, filePath string, file *ast.File) (*FileMetrics, error) {
+func (p *Parser) CalculateMetrics(ctx context.Context, filePath string, file *ast.File) (*rules.FileMetrics, error) {
 	src, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
@@ -90,7 +78,7 @@ func (p *Parser) CalculateMetrics(ctx context.Context, filePath string, file *as
 
 	lines := strings.Split(string(src), "\n")
 	totalLines := len(lines)
-	
+
 	var codeLines, commentLines, blankLines int
 	var functionCount, importCount, exportedCount int
 
@@ -125,7 +113,7 @@ func (p *Parser) CalculateMetrics(ctx context.Context, filePath string, file *as
 		commentRatio = float64(commentLines) / float64(codeLines)
 	}
 
-	return &FileMetrics{
+	return &rules.FileMetrics{
 		Path:          filePath,
 		TotalLines:    totalLines,
 		CodeLines:     codeLines,
@@ -138,43 +126,32 @@ func (p *Parser) CalculateMetrics(ctx context.Context, filePath string, file *as
 	}, nil
 }
 
-// FunctionMetrics contains metrics about a Go function
-type FunctionMetrics struct {
-	Name         string
-	Receiver     string
-	Exported     bool
-	LineCount    int
-	ParameterCount int
-	ReturnCount  int
-	CyclomaticComplexity int
-}
-
 // CalculateFunctionMetrics calculates metrics for a function declaration
-func (p *Parser) CalculateFunctionMetrics(ctx context.Context, funcDecl *ast.FuncDecl, fset *token.FileSet) (*FunctionMetrics, error) {
+func (p *Parser) CalculateFunctionMetrics(ctx context.Context, funcDecl *ast.FuncDecl, fset *token.FileSet) (*rules.FunctionMetrics, error) {
 	// Get function position
 	start := fset.Position(funcDecl.Pos())
 	end := fset.Position(funcDecl.End())
-	
+
 	lineCount := end.Line - start.Line + 1
-	
+
 	// Count parameters
 	paramCount := 0
 	if funcDecl.Type.Params != nil {
 		paramCount = len(funcDecl.Type.Params.List)
 	}
-	
+
 	// Count return values
 	returnCount := 0
 	if funcDecl.Type.Results != nil {
 		returnCount = len(funcDecl.Type.Results.List)
 	}
-	
+
 	// Calculate cyclomatic complexity
 	complexity := p.calculateCyclomaticComplexity(funcDecl)
-	
+
 	// Check if exported
 	exported := funcDecl.Name.IsExported()
-	
+
 	// Get receiver name if method
 	receiver := ""
 	if funcDecl.Recv != nil && len(funcDecl.Recv.List) > 0 {
@@ -182,22 +159,23 @@ func (p *Parser) CalculateFunctionMetrics(ctx context.Context, funcDecl *ast.Fun
 			receiver = ident.Name
 		}
 	}
-	
-	return &FunctionMetrics{
-		Name:                funcDecl.Name.Name,
-		Receiver:            receiver,
-		Exported:            exported,
-		LineCount:           lineCount,
-		ParameterCount:      paramCount,
-		ReturnCount:         returnCount,
+
+	return &rules.FunctionMetrics{
+		Name:                 funcDecl.Name.Name,
+		Receiver:             receiver,
+		Exported:             exported,
+		LineCount:            lineCount,
+		ParameterCount:       paramCount,
+		ReturnCount:          returnCount,
 		CyclomaticComplexity: complexity,
+		Position:             start,
 	}, nil
 }
 
 // calculateCyclomaticComplexity calculates the cyclomatic complexity of a function
 func (p *Parser) calculateCyclomaticComplexity(funcDecl *ast.FuncDecl) int {
 	complexity := 1 // Base complexity
-	
+
 	ast.Inspect(funcDecl, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.CaseClause:
@@ -231,6 +209,6 @@ func (p *Parser) calculateCyclomaticComplexity(funcDecl *ast.FuncDecl) int {
 		}
 		return true
 	})
-	
+
 	return complexity
 }
