@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/agentlint/agentlint/internal/core"
-	golang "github.com/agentlint/agentlint/internal/languages/go"
+	golang "github.com/agentlint/agentlint/internal/languages/golang"
 )
 
 func TestGoAnalyzer(t *testing.T) {

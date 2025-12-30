@@ -10,7 +10,7 @@ import (
 
 	"github.com/agentlint/agentlint/internal/core"
 	"github.com/agentlint/agentlint/internal/languages"
-	"github.com/agentlint/agentlint/internal/languages/go/rules"
+	"github.com/agentlint/agentlint/internal/languages/golang/rules"
 )
 
 // Analyzer implements the core.Analyzer interface for Go
@@ -22,7 +22,7 @@ type Analyzer struct {
 // NewAnalyzer creates a new Go analyzer
 func NewAnalyzer(config core.Config) *Analyzer {
 	parser := NewParser(config)
-	
+
 	// Initialize rules
 	rulesList := []core.Rule{
 		rules.NewLargeFunctionRule(config),
@@ -33,7 +33,7 @@ func NewAnalyzer(config core.Config) *Analyzer {
 		rules.NewUnreachableCodeRule(config),
 		rules.NewDeadImportRule(config),
 	}
-	
+
 	return &Analyzer{
 		parser: parser,
 		rules:  rulesList,
@@ -48,8 +48,11 @@ func (a *Analyzer) Analyze(ctx context.Context, filePath string, config core.Con
 		return nil, fmt.Errorf("failed to parse file %s: %w", filePath, err)
 	}
 
-	// Calculate file metrics is not needed for basic analysis
-	// We'll skip this for now to get tests passing
+	// Calculate file metrics
+	fileMetrics, err := a.parser.CalculateMetrics(ctx, filePath, file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate metrics for file %s: %w", filePath, err)
+	}
 
 	var results []core.Result
 
@@ -60,10 +63,12 @@ func (a *Analyzer) Analyze(ctx context.Context, filePath string, config core.Con
 			continue
 		}
 
-		// Apply rule to the file
-		result := rule.Check(ctx, file, config)
-		if result != nil {
-			results = append(results, *result)
+		// Apply rule to the file (for file-level rules)
+		if !isFunctionRule(rule) {
+			result := rule.Check(ctx, fileMetrics, config)
+			if result != nil {
+				results = append(results, *result)
+			}
 		}
 
 		// For function-specific rules, apply to each function
@@ -122,9 +127,9 @@ func isRuleEnabled(rule core.Rule, config core.Config) bool {
 
 // isFunctionRule checks if a rule applies to functions
 func isFunctionRule(rule core.Rule) bool {
-	return strings.Contains(rule.ID(), "function") || 
-		   strings.Contains(rule.ID(), "unused") ||
-		   strings.Contains(rule.ID(), "unreachable")
+	return strings.Contains(rule.ID(), "function") ||
+		strings.Contains(rule.ID(), "unused") ||
+		strings.Contains(rule.ID(), "unreachable")
 }
 
 // FileScanner scans directories for Go files
@@ -179,12 +184,12 @@ func (s *FileScanner) Scan(ctx context.Context, rootPath string) ([]string, erro
 // ScanForRegistry scans a directory and groups files by language
 func (s *FileScanner) ScanForRegistry(ctx context.Context, rootPath string, registry *languages.Registry) (map[string][]string, error) {
 	filesByLanguage := make(map[string][]string)
-	
+
 	goFiles, err := s.Scan(ctx, rootPath)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Group files by language using the registry
 	for _, file := range goFiles {
 		ext := filepath.Ext(file)
@@ -193,6 +198,6 @@ func (s *FileScanner) ScanForRegistry(ctx context.Context, rootPath string, regi
 			filesByLanguage[language] = append(filesByLanguage[language], file)
 		}
 	}
-	
+
 	return filesByLanguage, nil
 }
