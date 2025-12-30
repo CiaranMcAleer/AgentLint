@@ -34,7 +34,7 @@ AgentLint provides the following detection capabilities:
 AgentLint is distributed as a Go binary. Installation is performed via the Go toolchain:
 
 ```bash
-go install github.com/agentlint/agentlint/cmd/agentlint@latest
+go install github.com/CiaranMcAleer/AgentLint/cmd/agentlint@latest
 ```
 
 The binary is installed to `$GOPATH/bin` and is immediately available for use.

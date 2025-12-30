@@ -1,3 +1,3 @@
-module github.com/agentlint/agentlint
+module github.com/CiaranMcAleer/AgentLint
 
 go 1.21
