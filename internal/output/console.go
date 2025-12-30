@@ -27,69 +27,89 @@ func (f *ConsoleFormatter) Format(results []core.Result) error {
 		return nil
 	}
 
-	// Group results by file
+	fileResults := groupResultsByFile(results)
+
+	fmt.Printf("Found %d issues across %d files\n\n", len(results), len(fileResults))
+
+	f.printResultsByFile(fileResults)
+	f.printSummary(results)
+
+	return nil
+}
+
+func groupResultsByFile(results []core.Result) map[string][]core.Result {
 	fileResults := make(map[string][]core.Result)
 	for _, result := range results {
 		fileResults[result.FilePath] = append(fileResults[result.FilePath], result)
 	}
+	return fileResults
+}
 
-	// Print summary
-	fmt.Printf("Found %d issues across %d files\n\n", len(results), len(fileResults))
-
-	// Print results by file
+func (f *ConsoleFormatter) printResultsByFile(fileResults map[string][]core.Result) {
 	for filePath, fileIssues := range fileResults {
 		fmt.Printf("%s (%d issues):\n", filePath, len(fileIssues))
-		
+
 		for _, issue := range fileIssues {
-			severity := issue.Severity
-			switch severity {
-			case "error":
-				severity = "ERROR"
-			case "warning":
-				severity = "WARN"
-			case "info":
-				severity = "INFO"
-			}
-			
+			severity := formatSeverity(issue.Severity)
 			fmt.Printf("  %s:%d: %s [%s]\n", filePath, issue.Line, issue.Message, severity)
-			
+
 			if f.verbose && issue.Suggestion != "" {
 				fmt.Printf("    Suggestion: %s\n", issue.Suggestion)
 			}
 		}
 		fmt.Println()
 	}
+}
 
-	// Print summary by severity
-	errorCount := 0
-	warningCount := 0
-	infoCount := 0
-	
+func formatSeverity(severity string) string {
+	switch severity {
+	case "error":
+		return "ERROR"
+	case "warning":
+		return "WARN"
+	case "info":
+		return "INFO"
+	default:
+		return severity
+	}
+}
+
+type severityCounts struct {
+	errors   int
+	warnings int
+	info     int
+}
+
+func countSeverities(results []core.Result) severityCounts {
+	var counts severityCounts
 	for _, result := range results {
 		switch result.Severity {
 		case "error":
-			errorCount++
+			counts.errors++
 		case "warning":
-			warningCount++
+			counts.warnings++
 		case "info":
-			infoCount++
+			counts.info++
 		}
 	}
-	
-	if errorCount > 0 || warningCount > 0 || infoCount > 0 {
-		fmt.Println("Summary:")
-		if errorCount > 0 {
-			fmt.Printf("  Errors: %d\n", errorCount)
-		}
-		if warningCount > 0 {
-			fmt.Printf("  Warnings: %d\n", warningCount)
-		}
-		if infoCount > 0 {
-			fmt.Printf("  Info: %d\n", infoCount)
-		}
-	}
+	return counts
+}
 
-	return nil
+func (f *ConsoleFormatter) printSummary(results []core.Result) {
+	counts := countSeverities(results)
+
+	if counts.errors > 0 || counts.warnings > 0 || counts.info > 0 {
+		fmt.Println("Summary:")
+		if counts.errors > 0 {
+			fmt.Printf("  Errors: %d\n", counts.errors)
+		}
+		if counts.warnings > 0 {
+			fmt.Printf("  Warnings: %d\n", counts.warnings)
+		}
+		if counts.info > 0 {
+			fmt.Printf("  Info: %d\n", counts.info)
+		}
+	}
 }
 
 // FormatError formats an error for console output
