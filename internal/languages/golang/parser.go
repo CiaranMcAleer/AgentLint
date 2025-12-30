@@ -77,133 +77,133 @@ func (p *Parser) CalculateMetrics(ctx context.Context, filePath string, file *as
 	}
 
 	lines := strings.Split(string(src), "\n")
-	totalLines := len(lines)
 
-	var codeLines, commentLines, blankLines int
-	var functionCount, importCount, exportedCount int
-
-	// Count line types
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			blankLines++
-		} else if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") {
-			commentLines++
-		} else {
-			codeLines++
-		}
-	}
-
-	// Count AST elements
-	ast.Inspect(file, func(n ast.Node) bool {
-		switch node := n.(type) {
-		case *ast.FuncDecl:
-			functionCount++
-			if node.Name.IsExported() {
-				exportedCount++
-			}
-		case *ast.ImportSpec:
-			importCount++
-		}
-		return true
-	})
+	lineCounts := countLineTypes(lines)
+	astCounts := countASTElements(file)
 
 	commentRatio := 0.0
-	if codeLines > 0 {
-		commentRatio = float64(commentLines) / float64(codeLines)
+	if lineCounts.code > 0 {
+		commentRatio = float64(lineCounts.comment) / float64(lineCounts.code)
 	}
 
 	return &rules.FileMetrics{
 		Path:          filePath,
-		TotalLines:    totalLines,
-		CodeLines:     codeLines,
-		CommentLines:  commentLines,
-		BlankLines:    blankLines,
+		TotalLines:    lineCounts.total,
+		CodeLines:     lineCounts.code,
+		CommentLines:  lineCounts.comment,
+		BlankLines:    lineCounts.blank,
 		CommentRatio:  commentRatio,
-		FunctionCount: functionCount,
-		ImportCount:   importCount,
-		ExportedCount: exportedCount,
+		FunctionCount: astCounts.functions,
+		ImportCount:   astCounts.imports,
+		ExportedCount: astCounts.exported,
 	}, nil
+}
+
+type lineCounts struct {
+	total   int
+	code    int
+	comment int
+	blank   int
+}
+
+func countLineTypes(lines []string) lineCounts {
+	var counts lineCounts
+	counts.total = len(lines)
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			counts.blank++
+		} else if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") {
+			counts.comment++
+		} else {
+			counts.code++
+		}
+	}
+	return counts
+}
+
+type astCounts struct {
+	functions int
+	imports   int
+	exported  int
+}
+
+func countASTElements(file *ast.File) astCounts {
+	var counts astCounts
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.FuncDecl:
+			counts.functions++
+			if node.Name.IsExported() {
+				counts.exported++
+			}
+		case *ast.ImportSpec:
+			counts.imports++
+		}
+		return true
+	})
+
+	return counts
 }
 
 // CalculateFunctionMetrics calculates metrics for a function declaration
 func (p *Parser) CalculateFunctionMetrics(ctx context.Context, funcDecl *ast.FuncDecl, fset *token.FileSet) (*rules.FunctionMetrics, error) {
-	// Get function position
 	start := fset.Position(funcDecl.Pos())
 	end := fset.Position(funcDecl.End())
 
 	lineCount := end.Line - start.Line + 1
 
-	// Count parameters
-	paramCount := 0
-	if funcDecl.Type.Params != nil {
-		paramCount = len(funcDecl.Type.Params.List)
-	}
-
-	// Count return values
-	returnCount := 0
-	if funcDecl.Type.Results != nil {
-		returnCount = len(funcDecl.Type.Results.List)
-	}
-
-	// Calculate cyclomatic complexity
-	complexity := p.calculateCyclomaticComplexity(funcDecl)
-
-	// Check if exported
-	exported := funcDecl.Name.IsExported()
-
-	// Get receiver name if method
-	receiver := ""
-	if funcDecl.Recv != nil && len(funcDecl.Recv.List) > 0 {
-		if ident, ok := funcDecl.Recv.List[0].Type.(*ast.Ident); ok {
-			receiver = ident.Name
-		}
-	}
-
 	return &rules.FunctionMetrics{
 		Name:                 funcDecl.Name.Name,
-		Receiver:             receiver,
-		Exported:             exported,
+		Receiver:             getReceiverName(funcDecl),
+		Exported:             funcDecl.Name.IsExported(),
 		LineCount:            lineCount,
-		ParameterCount:       paramCount,
-		ReturnCount:          returnCount,
-		CyclomaticComplexity: complexity,
+		ParameterCount:       countParams(funcDecl),
+		ReturnCount:          countReturns(funcDecl),
+		CyclomaticComplexity: p.calculateCyclomaticComplexity(funcDecl),
 		Position:             start,
 	}, nil
 }
 
+func getReceiverName(funcDecl *ast.FuncDecl) string {
+	if funcDecl.Recv != nil && len(funcDecl.Recv.List) > 0 {
+		if ident, ok := funcDecl.Recv.List[0].Type.(*ast.Ident); ok {
+			return ident.Name
+		}
+	}
+	return ""
+}
+
+func countParams(funcDecl *ast.FuncDecl) int {
+	if funcDecl.Type.Params != nil {
+		return len(funcDecl.Type.Params.List)
+	}
+	return 0
+}
+
+func countReturns(funcDecl *ast.FuncDecl) int {
+	if funcDecl.Type.Results != nil {
+		return len(funcDecl.Type.Results.List)
+	}
+	return 0
+}
+
 // calculateCyclomaticComplexity calculates the cyclomatic complexity of a function
 func (p *Parser) calculateCyclomaticComplexity(funcDecl *ast.FuncDecl) int {
-	complexity := 1 // Base complexity
+	complexity := 1
 
 	ast.Inspect(funcDecl, func(n ast.Node) bool {
-		switch node := n.(type) {
+		switch n.(type) {
 		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.CaseClause:
 			complexity++
 		case *ast.SwitchStmt:
-			complexity++
-			// Count case clauses
-			if node.Body != nil {
-				for _, stmt := range node.Body.List {
-					if _, ok := stmt.(*ast.CaseClause); ok {
-						complexity++
-					}
-				}
-			}
+			complexity += 1 + countSwitchCases(n.(*ast.SwitchStmt))
 		case *ast.SelectStmt:
-			complexity++
-			// Count case clauses
-			if node.Body != nil {
-				for _, stmt := range node.Body.List {
-					if commClause, ok := stmt.(*ast.CommClause); ok {
-						if commClause.Comm != nil {
-							complexity++
-						}
-					}
-				}
-			}
+			complexity += 1 + countSelectCases(n.(*ast.SelectStmt))
 		case *ast.BinaryExpr:
-			if node.Op == token.LAND || node.Op == token.LOR {
+			if n.(*ast.BinaryExpr).Op == token.LAND || n.(*ast.BinaryExpr).Op == token.LOR {
 				complexity++
 			}
 		}
@@ -211,4 +211,30 @@ func (p *Parser) calculateCyclomaticComplexity(funcDecl *ast.FuncDecl) int {
 	})
 
 	return complexity
+}
+
+func countSwitchCases(switchStmt *ast.SwitchStmt) int {
+	if switchStmt.Body == nil {
+		return 0
+	}
+	count := 0
+	for _, stmt := range switchStmt.Body.List {
+		if _, ok := stmt.(*ast.CaseClause); ok {
+			count++
+		}
+	}
+	return count
+}
+
+func countSelectCases(selectStmt *ast.SelectStmt) int {
+	if selectStmt.Body == nil {
+		return 0
+	}
+	count := 0
+	for _, stmt := range selectStmt.Body.List {
+		if commClause, ok := stmt.(*ast.CommClause); ok && commClause.Comm != nil {
+			count++
+		}
+	}
+	return count
 }
