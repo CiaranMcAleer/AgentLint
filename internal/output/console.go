@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/agentlint/agentlint/internal/core"
+	"github.com/CiaranMcAleer/AgentLint/internal/core"
 )
 
 // ConsoleFormatter formats results for console output

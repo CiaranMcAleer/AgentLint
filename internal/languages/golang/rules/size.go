@@ -6,7 +6,7 @@ import (
 	"go/ast"
 	"go/token"
 
-	"github.com/agentlint/agentlint/internal/core"
+	"github.com/CiaranMcAleer/AgentLint/internal/core"
 )
 
 // LargeFunctionRule detects functions that are too large
@@ -135,14 +135,16 @@ func (r *LargeFileRule) Check(ctx context.Context, node interface{}, config core
 
 // FunctionMetrics contains metrics about a Go function
 type FunctionMetrics struct {
-	Name                string
-	Receiver            string
-	Exported            bool
-	LineCount           int
-	ParameterCount      int
-	ReturnCount         int
+	Name                 string
+	Receiver             string
+	Exported             bool
+	IsMainPackage        bool
+	LineCount            int
+	ParameterCount       int
+	ReturnCount          int
 	CyclomaticComplexity int
-	Position            token.Position
+	NestingDepth         int
+	Position             token.Position
 }
 
 // FileMetrics contains metrics about a Go file

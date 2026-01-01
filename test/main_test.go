@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/agentlint/agentlint/internal/core"
-	golang "github.com/agentlint/agentlint/internal/languages/golang"
+	"github.com/CiaranMcAleer/AgentLint/internal/core"
+	golang "github.com/CiaranMcAleer/AgentLint/internal/languages/golang"
 )
 
 func TestGoAnalyzer(t *testing.T) {
@@ -81,7 +81,7 @@ func largeFunction() {
 }
 `,
 		"unused_function.go": `
-package main
+package testpkg
 
 import "fmt"
 

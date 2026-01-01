@@ -7,7 +7,7 @@ import (
 	"go/token"
 	"strings"
 
-	"github.com/agentlint/agentlint/internal/core"
+	"github.com/CiaranMcAleer/AgentLint/internal/core"
 )
 
 // UnusedFunctionRule detects functions that are defined but never called
@@ -59,7 +59,8 @@ func (r *UnusedFunctionRule) Check(ctx context.Context, node interface{}, config
 			!strings.HasSuffix(n.Name, "Test") &&
 			!strings.HasPrefix(n.Name, "Benchmark") &&
 			!strings.HasPrefix(n.Name, "Example") &&
-			n.Name != "main" {
+			n.Name != "main" &&
+			!n.IsMainPackage {
 			return &core.Result{
 				RuleID:     r.ID(),
 				RuleName:   r.Name(),

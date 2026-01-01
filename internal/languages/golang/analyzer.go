@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/agentlint/agentlint/internal/core"
-	"github.com/agentlint/agentlint/internal/languages"
-	"github.com/agentlint/agentlint/internal/languages/golang/rules"
+	"github.com/CiaranMcAleer/AgentLint/internal/core"
+	"github.com/CiaranMcAleer/AgentLint/internal/languages"
+	"github.com/CiaranMcAleer/AgentLint/internal/languages/golang/rules"
 )
 
 // Analyzer implements the core.Analyzer interface for Go
@@ -75,7 +75,7 @@ func (a *Analyzer) Analyze(ctx context.Context, filePath string, config core.Con
 		if isFunctionRule(rule) {
 			ast.Inspect(file, func(n ast.Node) bool {
 				if funcDecl, ok := n.(*ast.FuncDecl); ok {
-					funcMetrics, err := a.parser.CalculateFunctionMetrics(ctx, funcDecl, fset)
+					funcMetrics, err := a.parser.CalculateFunctionMetrics(ctx, funcDecl, fset, file)
 					if err != nil {
 						return false
 					}

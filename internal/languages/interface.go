@@ -3,7 +3,7 @@ package languages
 import (
 	"context"
 
-	"github.com/agentlint/agentlint/internal/core"
+	"github.com/CiaranMcAleer/AgentLint/internal/core"
 )
 
 // Registry holds all available language analyzers

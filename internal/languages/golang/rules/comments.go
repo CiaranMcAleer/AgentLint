@@ -7,7 +7,7 @@ import (
 	"go/token"
 	"strings"
 
-	"github.com/agentlint/agentlint/internal/core"
+	"github.com/CiaranMcAleer/AgentLint/internal/core"
 )
 
 // OvercommentingRule detects overcommented code
@@ -64,13 +64,13 @@ func (r *OvercommentingRule) Check(ctx context.Context, node interface{}, config
 				Suggestion: "Consider reducing comments or ensuring they add meaningful information",
 			}
 		}
-		
+
 		// Check for redundant comments
 		if config.Rules.Overcommenting.CheckRedundant {
 			// This would require additional analysis of comment content
 			// For now, we'll just check the ratio
 		}
-		
+
 		// Check for missing documentation on exported functions
 		if config.Rules.Overcommenting.CheckDocCoverage {
 			// This would be checked in a separate rule or with additional context
@@ -126,7 +126,7 @@ func (r *RedundantCommentRule) Check(ctx context.Context, node interface{}, conf
 	switch n := node.(type) {
 	case *CommentGroup:
 		commentText := strings.TrimSpace(n.Text)
-		
+
 		// Check for common redundant patterns
 		redundantPatterns := []string{
 			"increment i",
@@ -137,7 +137,7 @@ func (r *RedundantCommentRule) Check(ctx context.Context, node interface{}, conf
 			"loop through",
 			"initialize variable",
 		}
-		
+
 		for _, pattern := range redundantPatterns {
 			if strings.Contains(strings.ToLower(commentText), pattern) {
 				return &core.Result{
@@ -205,7 +205,7 @@ func (r *MissingDocumentationRule) Check(ctx context.Context, node interface{}, 
 		if !n.Name.IsExported() {
 			return nil
 		}
-		
+
 		// Check if function has documentation
 		if n.Doc == nil || n.Doc.Text() == "" {
 			return &core.Result{

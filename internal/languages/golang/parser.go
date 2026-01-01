@@ -9,50 +9,169 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
-	"github.com/agentlint/agentlint/internal/core"
-	"github.com/agentlint/agentlint/internal/languages/golang/rules"
+	"github.com/CiaranMcAleer/AgentLint/internal/core"
+	"github.com/CiaranMcAleer/AgentLint/internal/languages/golang/rules"
 )
 
-// Parser handles parsing Go source code into ASTs
+type cachedFile struct {
+	file     *ast.File
+	fset     *token.FileSet
+	modTime  time.Time
+	filePath string
+}
+
+type ASTCache struct {
+	cache  map[string]*cachedFile
+	mu     sync.RWMutex
+	maxAge time.Duration
+}
+
+func NewASTCache(maxAge time.Duration) *ASTCache {
+	if maxAge == 0 {
+		maxAge = 5 * time.Minute
+	}
+	return &ASTCache{
+		cache:  make(map[string]*cachedFile),
+		maxAge: maxAge,
+	}
+}
+
+func (c *ASTCache) Get(filePath string) (*ast.File, *token.FileSet, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	cached, exists := c.cache[filePath]
+	if !exists {
+		return nil, nil, false
+	}
+
+	if time.Since(cached.modTime) > c.maxAge {
+		delete(c.cache, filePath)
+		return nil, nil, false
+	}
+
+	return cached.file, cached.fset, true
+}
+
+func (c *ASTCache) Set(filePath string, file *ast.File, fset *token.FileSet) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	stat, err := os.Stat(filePath)
+	if err != nil {
+		return
+	}
+
+	c.cache[filePath] = &cachedFile{
+		file:     file,
+		fset:     fset,
+		modTime:  stat.ModTime(),
+		filePath: filePath,
+	}
+}
+
+func (c *ASTCache) Invalidate(filePath string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.cache, filePath)
+}
+
+func (c *ASTCache) InvalidateAll() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cache = make(map[string]*cachedFile)
+}
+
+func (c *ASTCache) Size() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.cache)
+}
+
+func (c *ASTCache) Stats() CacheStats {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	stats := CacheStats{
+		Entries: len(c.cache),
+	}
+
+	for _, cached := range c.cache {
+		age := time.Since(cached.modTime)
+		if age > stats.MaxAge {
+			stats.MaxAge = age
+		}
+		if age < stats.MinAge {
+			stats.MinAge = age
+		}
+		stats.TotalAge += age
+	}
+
+	if stats.Entries > 0 {
+		stats.AvgAge = stats.TotalAge / time.Duration(stats.Entries)
+	}
+
+	return stats
+}
+
+type CacheStats struct {
+	Entries  int
+	MaxAge   time.Duration
+	MinAge   time.Duration
+	AvgAge   time.Duration
+	TotalAge time.Duration
+}
+
 type Parser struct {
 	fset   *token.FileSet
 	config core.Config
+	cache  *ASTCache
 }
 
-// NewParser creates a new Go parser
 func NewParser(config core.Config) *Parser {
 	return &Parser{
 		fset:   token.NewFileSet(),
 		config: config,
+		cache:  NewASTCache(0),
 	}
 }
 
-// ParseFile parses a Go source file into an AST
+func (p *Parser) SetCache(cache *ASTCache) {
+	p.cache = cache
+}
+
 func (p *Parser) ParseFile(ctx context.Context, filePath string) (*ast.File, *token.FileSet, error) {
-	// Check if file should be ignored
+	if p.cache != nil {
+		if file, fset, ok := p.cache.Get(filePath); ok {
+			return file, fset, nil
+		}
+	}
+
 	if p.shouldIgnoreFile(filePath) {
 		return nil, nil, fmt.Errorf("file ignored: %s", filePath)
 	}
 
-	// Read the file
 	src, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
 	}
 
-	// Parse the file
 	file, err := parser.ParseFile(p.fset, filePath, src, parser.ParseComments)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse file %s: %w", filePath, err)
+		return nil, nil, err
+	}
+
+	if p.cache != nil {
+		p.cache.Set(filePath, file, p.fset)
 	}
 
 	return file, p.fset, nil
 }
 
-// shouldIgnoreFile checks if a file should be ignored based on configuration
 func (p *Parser) shouldIgnoreFile(filePath string) bool {
-	// Ignore test files if configured
 	if p.config.Language.Go.IgnoreTests {
 		base := filepath.Base(filePath)
 		if strings.HasSuffix(base, "_test.go") {
@@ -60,7 +179,6 @@ func (p *Parser) shouldIgnoreFile(filePath string) bool {
 		}
 	}
 
-	// Ignore files with _ in front (like _generated.go)
 	base := filepath.Base(filePath)
 	if strings.HasPrefix(base, "_") {
 		return true
@@ -69,7 +187,6 @@ func (p *Parser) shouldIgnoreFile(filePath string) bool {
 	return false
 }
 
-// CalculateMetrics calculates various metrics for a Go file
 func (p *Parser) CalculateMetrics(ctx context.Context, filePath string, file *ast.File) (*rules.FileMetrics, error) {
 	src, err := os.ReadFile(filePath)
 	if err != nil {
@@ -148,21 +265,24 @@ func countASTElements(file *ast.File) astCounts {
 	return counts
 }
 
-// CalculateFunctionMetrics calculates metrics for a function declaration
-func (p *Parser) CalculateFunctionMetrics(ctx context.Context, funcDecl *ast.FuncDecl, fset *token.FileSet) (*rules.FunctionMetrics, error) {
+func (p *Parser) CalculateFunctionMetrics(ctx context.Context, funcDecl *ast.FuncDecl, fset *token.FileSet, file *ast.File) (*rules.FunctionMetrics, error) {
 	start := fset.Position(funcDecl.Pos())
 	end := fset.Position(funcDecl.End())
 
 	lineCount := end.Line - start.Line + 1
 
+	isMainPackage := file.Name.Name == "main"
+
 	return &rules.FunctionMetrics{
 		Name:                 funcDecl.Name.Name,
 		Receiver:             getReceiverName(funcDecl),
 		Exported:             funcDecl.Name.IsExported(),
+		IsMainPackage:        isMainPackage,
 		LineCount:            lineCount,
 		ParameterCount:       countParams(funcDecl),
 		ReturnCount:          countReturns(funcDecl),
 		CyclomaticComplexity: p.calculateCyclomaticComplexity(funcDecl),
+		NestingDepth:         calculateNestingDepth(funcDecl),
 		Position:             start,
 	}, nil
 }
@@ -190,7 +310,6 @@ func countReturns(funcDecl *ast.FuncDecl) int {
 	return 0
 }
 
-// calculateCyclomaticComplexity calculates the cyclomatic complexity of a function
 func (p *Parser) calculateCyclomaticComplexity(funcDecl *ast.FuncDecl) int {
 	complexity := 1
 
@@ -211,6 +330,28 @@ func (p *Parser) calculateCyclomaticComplexity(funcDecl *ast.FuncDecl) int {
 	})
 
 	return complexity
+}
+
+func calculateNestingDepth(funcDecl *ast.FuncDecl) int {
+	if funcDecl.Body == nil {
+		return 0
+	}
+
+	maxDepth := 0
+	currentDepth := 0
+
+	ast.Inspect(funcDecl.Body, func(n ast.Node) bool {
+		switch n.(type) {
+		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.SelectStmt:
+			currentDepth++
+			if currentDepth > maxDepth {
+				maxDepth = currentDepth
+			}
+		}
+		return true
+	})
+
+	return maxDepth
 }
 
 func countSwitchCases(switchStmt *ast.SwitchStmt) int {

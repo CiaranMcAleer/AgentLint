@@ -1,6 +1,6 @@
 package output
 
-import "github.com/agentlint/agentlint/internal/core"
+import "github.com/CiaranMcAleer/AgentLint/internal/core"
 
 // Formatter interface for output formatters
 type Formatter interface {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/agentlint/agentlint/internal/core"
+	"github.com/CiaranMcAleer/AgentLint/internal/core"
 )
 
 // JSONFormatter formats results as JSON
@@ -22,10 +22,10 @@ func NewJSONFormatter(verbose bool) *JSONFormatter {
 
 // JSONOutput represents the structure of JSON output
 type JSONOutput struct {
-	Summary   Summary              `json:"summary"`
-	Results   []core.Result        `json:"results"`
-	Errors    []string             `json:"errors,omitempty"`
-	Timestamp string               `json:"timestamp"`
+	Summary   Summary       `json:"summary"`
+	Results   []core.Result `json:"results"`
+	Errors    []string      `json:"errors,omitempty"`
+	Timestamp string        `json:"timestamp"`
 }
 
 // Summary contains summary information about the analysis

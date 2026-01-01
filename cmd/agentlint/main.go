@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
-	"github.com/agentlint/agentlint/internal/core"
-	"github.com/agentlint/agentlint/internal/languages"
-	"github.com/agentlint/agentlint/internal/languages/golang"
-	"github.com/agentlint/agentlint/internal/output"
+	"github.com/CiaranMcAleer/AgentLint/internal/core"
+	"github.com/CiaranMcAleer/AgentLint/internal/languages"
+	"github.com/CiaranMcAleer/AgentLint/internal/languages/golang"
+	"github.com/CiaranMcAleer/AgentLint/internal/output"
+	"github.com/CiaranMcAleer/AgentLint/internal/profiling"
 )
 
 func main() {
@@ -20,11 +22,70 @@ func main() {
 		return
 	}
 	if flags.showVersion {
-		fmt.Println("AgentLint v0.1.0")
-		fmt.Println("A linter for detecting LLM code bad smells")
+		printVersion()
 		return
 	}
 
+	setupProfiling(flags)
+	setupWorkers(flags)
+
+	path := resolvePath()
+	cfg := buildConfig(flags)
+	cfg.Language.Go.IgnoreTests = flags.goIgnoreTests
+	ctx := context.Background()
+
+	registry := setupAnalyzer(cfg)
+	goScanner := golang.NewFileScanner()
+	timing := profiling.NewTimingStats()
+
+	filesByLanguage, err := scanFiles(ctx, path, goScanner, registry)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error scanning files: %v\n", err)
+		os.Exit(1)
+	}
+
+	allResults := analyzeFiles(ctx, filesByLanguage, registry, cfg)
+	printResults(timing, allResults, flags, cfg)
+}
+
+func printVersion() {
+	fmt.Println("AgentLint v0.1.0")
+	fmt.Println("A linter for detecting LLM code bad smells")
+}
+
+func setupProfiling(flags *parsedFlags) {
+	if flags.cpuProfile != "" {
+		if err := profiling.StartCPUProfile(flags.cpuProfile); err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting CPU profile: %v\n", err)
+			os.Exit(1)
+		}
+		defer profiling.StopCPUProfile()
+	}
+
+	if flags.memProfile != "" {
+		if err := profiling.StartMemProfile(flags.memProfile); err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting memory profile: %v\n", err)
+			os.Exit(1)
+		}
+		defer profiling.CloseMemProfile()
+	}
+
+	if flags.traceProfile != "" {
+		if err := profiling.StartTrace(flags.traceProfile); err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting trace: %v\n", err)
+			os.Exit(1)
+		}
+		defer profiling.StopTrace()
+	}
+}
+
+func setupWorkers(flags *parsedFlags) {
+	if flags.workers > 0 {
+		runtime.GOMAXPROCS(flags.workers)
+	}
+}
+
+func resolvePath() string {
 	path := "."
 	if flag.NArg() > 0 {
 		path = flag.Arg(0)
@@ -41,19 +102,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg := buildConfig(flags)
-	ctx := context.Background()
+	return absPath
+}
 
-	registry := setupAnalyzer(cfg)
-	goScanner := golang.NewFileScanner()
-
-	filesByLanguage, err := scanFiles(ctx, absPath, goScanner, registry)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error scanning files: %v\n", err)
-		os.Exit(1)
+func printResults(timing *profiling.TimingStats, allResults []core.Result, flags *parsedFlags, cfg core.Config) {
+	timing.Finish(len(allResults), len(allResults))
+	if flags.verbose {
+		timing.Print()
+		profiling.PrintStats(profiling.GetStats())
 	}
 
-	allResults := analyzeFiles(ctx, filesByLanguage, registry, cfg)
+	if flags.memProfile != "" {
+		profiling.WriteMemProfile()
+	}
 
 	outputResults(cfg, allResults)
 
@@ -82,6 +143,10 @@ type parsedFlags struct {
 	goIgnoreTests            bool
 	showVersion              bool
 	showHelp                 bool
+	cpuProfile               string
+	memProfile               string
+	traceProfile             string
+	workers                  int
 }
 
 func parseFlags() *parsedFlags {
@@ -109,6 +174,10 @@ func parseFlags() *parsedFlags {
 	flag.BoolVar(&f.orphanedCheckDeadImports, "check-dead-imports", true, "Check for dead imports")
 
 	flag.BoolVar(&f.goIgnoreTests, "ignore-tests", false, "Ignore test files during analysis")
+	flag.StringVar(&f.cpuProfile, "cpuprofile", "", "Write CPU profile to file")
+	flag.StringVar(&f.memProfile, "memprofile", "", "Write memory profile to file")
+	flag.StringVar(&f.traceProfile, "trace", "", "Write execution trace to file")
+	flag.IntVar(&f.workers, "workers", 0, "Number of worker threads (0 = auto)")
 	flag.BoolVar(&f.showVersion, "version", false, "Show version information")
 	flag.BoolVar(&f.showHelp, "help", false, "Show help information")
 
@@ -177,13 +246,19 @@ func analyzeFiles(ctx context.Context, filesByLanguage map[string][]string, regi
 
 		fmt.Printf("Analyzing %d %s files...\n", len(files), language)
 
-		for _, file := range files {
-			results, err := analyzer.Analyze(ctx, file, cfg)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error analyzing file %s: %v\n", file, err)
-				continue
-			}
+		if language == "go" && len(files) > 1 {
+			parallelAnalyzer := golang.NewParallelAnalyzer(cfg, 0)
+			results := parallelAnalyzer.AnalyzeFiles(ctx, files, cfg)
 			allResults = append(allResults, results...)
+		} else {
+			for _, file := range files {
+				results, err := analyzer.Analyze(ctx, file, cfg)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error analyzing file %s: %v\n", file, err)
+					continue
+				}
+				allResults = append(allResults, results...)
+			}
 		}
 	}
 
@@ -227,25 +302,49 @@ func showHelp() {
 	fmt.Println("Usage:")
 	fmt.Println("  agentlint [flags] [path]")
 	fmt.Println()
+	printOutputOptions()
+	printFunctionSizeOptions()
+	printFileSizeOptions()
+	printCommentOptions()
+	printOrphanedOptions()
+	printGoOptions()
+	printPerformanceOptions()
+	printGeneralOptions()
+	printExamples()
+}
+
+func printOutputOptions() {
 	fmt.Println("Output Options:")
 	fmt.Println("  -format string       Output format (console, json) (default \"console\")")
 	fmt.Println("  -output string       Output file (default: stdout)")
 	fmt.Println("  -verbose             Verbose output")
 	fmt.Println()
+}
+
+func printFunctionSizeOptions() {
 	fmt.Println("Function Size Rules:")
 	fmt.Println("  -enable-func-size    Enable large function detection (default true)")
 	fmt.Println("  -func-max-lines      Maximum number of lines for a function (default 50)")
 	fmt.Println()
+}
+
+func printFileSizeOptions() {
 	fmt.Println("File Size Rules:")
 	fmt.Println("  -enable-file-size    Enable large file detection (default true)")
 	fmt.Println("  -file-max-lines      Maximum number of lines for a file (default 500)")
 	fmt.Println()
+}
+
+func printCommentOptions() {
 	fmt.Println("Comment Rules:")
 	fmt.Println("  -enable-comments     Enable overcommenting detection (default true)")
 	fmt.Println("  -comment-max-ratio   Maximum comment-to-code ratio (default 0.3)")
 	fmt.Println("  -check-redundant     Check for redundant comments (default true)")
 	fmt.Println("  -check-docs          Check for missing documentation (default true)")
 	fmt.Println()
+}
+
+func printOrphanedOptions() {
 	fmt.Println("Orphaned Code Rules:")
 	fmt.Println("  -enable-orphaned    Enable orphaned code detection (default true)")
 	fmt.Println("  -check-unused-funcs  Check for unused functions (default true)")
@@ -253,13 +352,31 @@ func showHelp() {
 	fmt.Println("  -check-unreachable   Check for unreachable code (default true)")
 	fmt.Println("  -check-dead-imports  Check for dead imports (default true)")
 	fmt.Println()
+}
+
+func printGoOptions() {
 	fmt.Println("Go-specific Options:")
 	fmt.Println("  -ignore-tests        Ignore test files during analysis (default false)")
 	fmt.Println()
+}
+
+func printPerformanceOptions() {
+	fmt.Println("Performance Options:")
+	fmt.Println("  -cpuprofile string   Write CPU profile to file")
+	fmt.Println("  -memprofile string   Write memory profile to file")
+	fmt.Println("  -trace string        Write execution trace to file")
+	fmt.Println("  -workers int         Number of worker threads (0 = auto)")
+	fmt.Println()
+}
+
+func printGeneralOptions() {
 	fmt.Println("General Options:")
 	fmt.Println("  -version             Show version information")
 	fmt.Println("  -help                Show help information")
 	fmt.Println()
+}
+
+func printExamples() {
 	fmt.Println("Examples:")
 	fmt.Println("  agentlint ./myproject")
 	fmt.Println("  agentlint -format json -output report.json ./myproject")
