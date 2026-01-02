@@ -68,6 +68,9 @@ func (a *Analyzer) applyFileRules(ctx context.Context, results []core.Result, me
 			continue
 		}
 		if result := rule.Check(ctx, metrics, config); result != nil {
+			if result.FilePath == "" {
+				result.FilePath = metrics.Path
+			}
 			results = append(results, *result)
 		}
 	}
