@@ -11,6 +11,7 @@ import (
 	"github.com/CiaranMcAleer/AgentLint/internal/core"
 	"github.com/CiaranMcAleer/AgentLint/internal/languages"
 	"github.com/CiaranMcAleer/AgentLint/internal/languages/golang"
+	"github.com/CiaranMcAleer/AgentLint/internal/languages/python"
 	"github.com/CiaranMcAleer/AgentLint/internal/output"
 	"github.com/CiaranMcAleer/AgentLint/internal/profiling"
 )
@@ -35,10 +36,10 @@ func main() {
 	ctx := context.Background()
 
 	registry := setupAnalyzer(cfg)
-	goScanner := golang.NewFileScanner()
+	scanner := languages.NewMultiScanner(registry)
 	timing := profiling.NewTimingStats()
 
-	filesByLanguage, err := scanFiles(ctx, path, goScanner, registry)
+	filesByLanguage, err := scanFiles(ctx, path, scanner)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error scanning files: %v\n", err)
 		os.Exit(1)
@@ -225,14 +226,21 @@ func buildConfig(f *parsedFlags) core.Config {
 
 func setupAnalyzer(cfg core.Config) *languages.Registry {
 	registry := languages.NewRegistry()
+
+	// Register Go analyzer
 	goAnalyzer := golang.NewAnalyzer(cfg)
 	registry.Register(goAnalyzer)
+
+	// Register Python analyzer
+	pythonAnalyzer := python.NewAnalyzer(cfg)
+	registry.Register(pythonAnalyzer)
+
 	return registry
 }
 
-func scanFiles(ctx context.Context, absPath string, goScanner *golang.FileScanner, registry *languages.Registry) (map[string][]string, error) {
+func scanFiles(ctx context.Context, absPath string, scanner *languages.MultiScanner) (map[string][]string, error) {
 	fmt.Printf("Scanning %s...\n", absPath)
-	return goScanner.ScanForRegistry(ctx, absPath, registry)
+	return scanner.Scan(ctx, absPath)
 }
 
 func analyzeFiles(ctx context.Context, filesByLanguage map[string][]string, registry *languages.Registry, cfg core.Config) []core.Result {
