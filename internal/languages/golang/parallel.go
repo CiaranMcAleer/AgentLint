@@ -76,7 +76,8 @@ func (a *ParallelAnalyzer) AnalyzeFiles(ctx context.Context, filePaths []string,
 		close(resultChan)
 	}()
 
-	var allResults []core.Result
+	// Pre-allocate with estimated capacity (avg 2 results per file)
+	allResults := make([]core.Result, 0, len(filePaths)*2)
 	for result := range resultChan {
 		if result.err != nil {
 			continue
