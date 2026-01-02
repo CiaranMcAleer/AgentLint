@@ -96,16 +96,22 @@ type OrphanedCodeConfig struct {
 
 // OutputConfig contains configuration for output formatting
 type OutputConfig struct {
-	Format string `yaml:"format"` // console, json
+	Format  string `yaml:"format"` // console, json
 	Verbose bool   `yaml:"verbose"`
 }
 
 // LanguageConfig contains language-specific configuration
 type LanguageConfig struct {
-	Go GoConfig `yaml:"go"`
+	Go     GoConfig     `yaml:"go"`
+	Python PythonConfig `yaml:"python"`
 }
 
 // GoConfig contains Go-specific configuration
 type GoConfig struct {
+	IgnoreTests bool `yaml:"ignoreTests"`
+}
+
+// PythonConfig contains Python-specific configuration
+type PythonConfig struct {
 	IgnoreTests bool `yaml:"ignoreTests"`
 }
