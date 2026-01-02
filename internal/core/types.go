@@ -102,8 +102,9 @@ type OutputConfig struct {
 
 // LanguageConfig contains language-specific configuration
 type LanguageConfig struct {
-	Go     GoConfig     `yaml:"go"`
-	Python PythonConfig `yaml:"python"`
+	Go          GoConfig          `yaml:"go"`
+	Python      PythonConfig      `yaml:"python"`
+	ReactNative ReactNativeConfig `yaml:"reactnative"`
 }
 
 // GoConfig contains Go-specific configuration
@@ -113,5 +114,10 @@ type GoConfig struct {
 
 // PythonConfig contains Python-specific configuration
 type PythonConfig struct {
+	IgnoreTests bool `yaml:"ignoreTests"`
+}
+
+// ReactNativeConfig contains React Native/JavaScript/TypeScript configuration
+type ReactNativeConfig struct {
 	IgnoreTests bool `yaml:"ignoreTests"`
 }

@@ -38,3 +38,5 @@ language:
     ignoreTests: false  # Ignore test files during analysis
   python:
     ignoreTests: false  # Ignore test files (test_*.py, *_test.py) during analysis
+  reactnative:
+    ignoreTests: false  # Ignore test files (*.test.js, *.spec.js, etc.) during analysis
