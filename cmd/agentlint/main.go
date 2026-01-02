@@ -12,6 +12,7 @@ import (
 	"github.com/CiaranMcAleer/AgentLint/internal/languages"
 	"github.com/CiaranMcAleer/AgentLint/internal/languages/golang"
 	"github.com/CiaranMcAleer/AgentLint/internal/languages/python"
+	"github.com/CiaranMcAleer/AgentLint/internal/languages/reactnative"
 	"github.com/CiaranMcAleer/AgentLint/internal/output"
 	"github.com/CiaranMcAleer/AgentLint/internal/profiling"
 )
@@ -234,6 +235,10 @@ func setupAnalyzer(cfg core.Config) *languages.Registry {
 	// Register Python analyzer
 	pythonAnalyzer := python.NewAnalyzer(cfg)
 	registry.Register(pythonAnalyzer)
+
+	// Register React Native analyzer
+	reactNativeAnalyzer := reactnative.NewAnalyzer(cfg)
+	registry.Register(reactNativeAnalyzer)
 
 	return registry
 }
