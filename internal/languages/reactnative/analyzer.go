@@ -13,8 +13,9 @@ import (
 
 // Analyzer implements the core.Analyzer interface for React Native (JS/TS/JSX/TSX)
 type Analyzer struct {
-	parser *Parser
-	rules  []core.Rule
+	parser     *Parser
+	rules      []core.Rule
+	lineRules  []rules.LineCheckRule
 }
 
 // NewAnalyzer creates a new React Native analyzer
@@ -31,9 +32,19 @@ func NewAnalyzer(config core.Config) *Analyzer {
 		rules.NewDeadImportRule(config),
 	}
 
+	lineRulesList := []rules.LineCheckRule{
+		rules.NewInlineStyleRule(config),
+		rules.NewAnonymousFunctionInJSXRule(config),
+		rules.NewConsoleLogRule(config),
+		rules.NewDeprecatedLifecycleRule(config),
+		rules.NewHardcodedDimensionRule(config),
+		rules.NewDirectStateMutationRule(config),
+	}
+
 	return &Analyzer{
-		parser: parser,
-		rules:  rulesList,
+		parser:    parser,
+		rules:     rulesList,
+		lineRules: lineRulesList,
 	}
 }
 
@@ -47,11 +58,24 @@ func (a *Analyzer) Analyze(ctx context.Context, filePath string, config core.Con
 	fileMetrics := a.parser.CalculateFileMetrics(ctx, filePath, parsed)
 	functionMetrics := a.parser.CalculateFunctionMetrics(ctx, parsed)
 
-	results := make([]core.Result, 0, 8)
+	results := make([]core.Result, 0, 16)
 	results = a.applyFileRules(ctx, results, fileMetrics, filePath, config)
 	results = a.applyFunctionRules(ctx, results, functionMetrics, filePath, config)
+	results = a.applyLineRules(ctx, results, parsed, filePath, config)
 
 	return results, nil
+}
+
+func (a *Analyzer) applyLineRules(ctx context.Context, results []core.Result, parsed *ParsedFile, filePath string, config core.Config) []core.Result {
+	for lineNum, line := range parsed.Lines {
+		for _, rule := range a.lineRules {
+			if result := rule.CheckLine(line, lineNum+1); result != nil {
+				result.FilePath = filePath
+				results = append(results, *result)
+			}
+		}
+	}
+	return results
 }
 
 func (a *Analyzer) applyFileRules(ctx context.Context, results []core.Result, metrics *rules.FileMetrics, filePath string, config core.Config) []core.Result {
