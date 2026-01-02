@@ -51,7 +51,7 @@ func main() {
 }
 
 func printVersion() {
-	fmt.Println("AgentLint v0.1.0")
+	fmt.Println("AgentLint v0.0.40")
 	fmt.Println("A linter for detecting LLM code bad smells")
 }
 
