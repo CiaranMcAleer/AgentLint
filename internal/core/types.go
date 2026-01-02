@@ -19,9 +19,13 @@ type Result struct {
 type RuleCategory string
 
 const (
-	CategorySize     RuleCategory = "size"
-	CategoryComments RuleCategory = "comments"
-	CategoryOrphaned RuleCategory = "orphaned"
+	CategorySize        RuleCategory = "size"
+	CategoryComments    RuleCategory = "comments"
+	CategoryOrphaned    RuleCategory = "orphaned"
+	CategoryPerformance RuleCategory = "performance"
+	CategoryDeprecated  RuleCategory = "deprecated"
+	CategoryStyle       RuleCategory = "style"
+	CategoryBug         RuleCategory = "bug"
 )
 
 // Severity defines the severity level of a result
