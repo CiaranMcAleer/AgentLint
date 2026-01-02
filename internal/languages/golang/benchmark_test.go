@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/CiaranMcAleer/AgentLint/internal/core"
@@ -41,6 +42,17 @@ func setupTestConfig() core.Config {
 			Verbose: false,
 		},
 	}
+}
+
+// generateLargeFunction generates a Go source file with a function of specified line count
+func generateLargeFunction(lineCount int) string {
+	var sb strings.Builder
+	sb.WriteString("package main\n\nfunc veryLargeFunction() {\n")
+	for i := 1; i <= lineCount; i++ {
+		fmt.Fprintf(&sb, "\tline%d := %d\n", i, i)
+	}
+	sb.WriteString("}\n")
+	return sb.String()
 }
 
 func BenchmarkAnalyzerSingleFile(b *testing.B) {
@@ -130,62 +142,7 @@ func helper%d() {
 func BenchmarkRuleLargeFunction(b *testing.B) {
 	tmpDir := b.TempDir()
 	testFile := filepath.Join(tmpDir, "test.go")
-	content := `package main
-
-func veryLargeFunction() {
-	line1 := 1
-	line2 := 2
-	line3 := 3
-	line4 := 4
-	line5 := 5
-	line6 := 6
-	line7 := 7
-	line8 := 8
-	line9 := 9
-	line10 := 10
-	line11 := 11
-	line12 := 12
-	line13 := 13
-	line14 := 14
-	line15 := 15
-	line16 := 16
-	line17 := 17
-	line18 := 18
-	line19 := 19
-	line20 := 20
-	line21 := 21
-	line22 := 22
-	line23 := 23
-	line24 := 24
-	line25 := 25
-	line26 := 26
-	line27 := 27
-	line28 := 28
-	line29 := 29
-	line30 := 30
-	line31 := 31
-	line32 := 32
-	line33 := 33
-	line34 := 34
-	line35 := 35
-	line36 := 36
-	line37 := 37
-	line38 := 38
-	line39 := 39
-	line40 := 40
-	line41 := 41
-	line42 := 42
-	line43 := 43
-	line44 := 44
-	line45 := 45
-	line46 := 46
-	line47 := 47
-	line48 := 48
-	line49 := 49
-	line50 := 50
-	line51 := 51
-}
-`
+	content := generateLargeFunction(51)
 	os.WriteFile(testFile, []byte(content), 0644)
 
 	config := setupTestConfig()
