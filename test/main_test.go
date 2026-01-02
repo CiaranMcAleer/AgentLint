@@ -27,19 +27,7 @@ func generateLargeFunc(lines int) string {
 func getTestFilesForAnalyzer() map[string]string {
 	return map[string]string{
 		"large_function.go": generateLargeFunc(51),
-		"unused_function.go": `package testpkg
-
-import "fmt"
-
-// This function is never used
-func unusedFunction() {
-	fmt.Println("This function is never called")
-}
-
-func main() {
-	fmt.Println("Hello, world!")
-}
-`,
+		"another_large.go": generateLargeFunc(35), // Will exceed MaxLines: 30
 		"overcommented.go": `package main
 
 import "fmt"

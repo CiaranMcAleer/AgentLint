@@ -97,6 +97,7 @@ func main() {
 func TestIntegrationUnusedFunction(t *testing.T) {
 	tmpDir := t.TempDir()
 
+	// Create a test file with an unused function
 	testFile := filepath.Join(tmpDir, "test.go")
 	content := `package testpkg
 
@@ -110,21 +111,16 @@ func main() {
 `
 	os.WriteFile(testFile, []byte(content), 0644)
 
-	config := core.Config{
-		Rules: core.RulesConfig{
-			OrphanedCode: core.OrphanedCodeConfig{
-				Enabled:              true,
-				CheckUnusedFunctions: true,
-			},
-		},
-	}
-
-	analyzer := golang.NewAnalyzer(config)
-
-	results, err := analyzer.Analyze(context.Background(), testFile, config)
+	// Use CrossFileAnalyzer for unused function detection
+	// (single-file analysis cannot reliably detect unused functions
+	// as they may be called from other files)
+	crossFileAnalyzer := golang.NewCrossFileAnalyzer()
+	err := crossFileAnalyzer.AnalyzeDirectory(context.Background(), tmpDir)
 	if err != nil {
-		t.Fatalf("Analyze failed: %v", err)
+		t.Fatalf("AnalyzeDirectory failed: %v", err)
 	}
+
+	results := crossFileAnalyzer.FindUnusedFunctions()
 
 	foundUnused := false
 	for _, r := range results {
