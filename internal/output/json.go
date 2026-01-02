@@ -39,18 +39,28 @@ type Summary struct {
 
 // Format formats the results as JSON
 func (f *JSONFormatter) Format(results []core.Result) error {
-	// Calculate summary
-	summary := Summary{
-		TotalIssues: len(results),
-		ErrorCount:  0,
-		WarnCount:   0,
-		InfoCount:   0,
-		FileCount:   0,
+	summary := f.calculateSummary(results)
+
+	output := JSONOutput{
+		Summary:   summary,
+		Results:   results,
+		Timestamp: getCurrentTimestamp(),
 	}
 
-	fileSet := make(map[string]bool)
-	for _, result := range results {
-		switch result.Severity {
+	// Use encoder for better performance with large outputs
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(output)
+}
+
+// calculateSummary computes summary statistics from results
+func (f *JSONFormatter) calculateSummary(results []core.Result) Summary {
+	summary := Summary{TotalIssues: len(results)}
+
+	// Pre-allocate file set with estimated capacity
+	fileSet := make(map[string]struct{}, len(results)/2+1)
+	for i := range results {
+		switch results[i].Severity {
 		case "error":
 			summary.ErrorCount++
 		case "warning":
@@ -58,26 +68,10 @@ func (f *JSONFormatter) Format(results []core.Result) error {
 		case "info":
 			summary.InfoCount++
 		}
-		fileSet[result.FilePath] = true
+		fileSet[results[i].FilePath] = struct{}{}
 	}
 	summary.FileCount = len(fileSet)
-
-	// Create output structure
-	output := JSONOutput{
-		Summary:   summary,
-		Results:   results,
-		Timestamp: getCurrentTimestamp(),
-	}
-
-	// Marshal to JSON
-	jsonData, err := json.MarshalIndent(output, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %w", err)
-	}
-
-	// Print to stdout
-	fmt.Println(string(jsonData))
-	return nil
+	return summary
 }
 
 // FormatError formats an error as JSON
