@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,59 +43,62 @@ func NewAnalyzer(config core.Config) *Analyzer {
 
 // Analyze analyzes a Go file and returns results
 func (a *Analyzer) Analyze(ctx context.Context, filePath string, config core.Config) ([]core.Result, error) {
-	// Parse the file
 	file, fset, err := a.parser.ParseFile(ctx, filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse file %s: %w", filePath, err)
 	}
 
-	// Calculate file metrics
 	fileMetrics, err := a.parser.CalculateMetrics(ctx, filePath, file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to calculate metrics for file %s: %w", filePath, err)
 	}
 
-	var results []core.Result
-
-	// Apply all rules
-	for _, rule := range a.rules {
-		// Skip disabled rules
-		if !isRuleEnabled(rule, config) {
-			continue
-		}
-
-		// Apply rule to the file (for file-level rules)
-		if !isFunctionRule(rule) {
-			result := rule.Check(ctx, fileMetrics, config)
-			if result != nil {
-				results = append(results, *result)
-			}
-		}
-
-		// For function-specific rules, apply to each function
-		if isFunctionRule(rule) {
-			ast.Inspect(file, func(n ast.Node) bool {
-				if funcDecl, ok := n.(*ast.FuncDecl); ok {
-					funcMetrics, err := a.parser.CalculateFunctionMetrics(ctx, funcDecl, fset, file)
-					if err != nil {
-						return false
-					}
-
-					result := rule.Check(ctx, funcMetrics, config)
-					if result != nil {
-						// Set file path if not already set
-						if result.FilePath == "" {
-							result.FilePath = filePath
-						}
-						results = append(results, *result)
-					}
-				}
-				return true
-			})
-		}
-	}
+	// Pre-allocate results slice with estimated capacity
+	results := make([]core.Result, 0, 8)
+	results = a.applyFileRules(ctx, results, fileMetrics, config)
+	results = a.applyFunctionRules(ctx, results, file, fset, filePath, config)
 
 	return results, nil
+}
+
+// applyFileRules applies file-level rules and returns accumulated results
+func (a *Analyzer) applyFileRules(ctx context.Context, results []core.Result, metrics *rules.FileMetrics, config core.Config) []core.Result {
+	for _, rule := range a.rules {
+		if !isRuleEnabled(rule, config) || isFunctionRule(rule) {
+			continue
+		}
+		if result := rule.Check(ctx, metrics, config); result != nil {
+			results = append(results, *result)
+		}
+	}
+	return results
+}
+
+// applyFunctionRules applies function-level rules to each function in the file
+func (a *Analyzer) applyFunctionRules(ctx context.Context, results []core.Result, file *ast.File, fset *token.FileSet, filePath string, config core.Config) []core.Result {
+	for _, rule := range a.rules {
+		if !isRuleEnabled(rule, config) || !isFunctionRule(rule) {
+			continue
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			funcDecl, ok := n.(*ast.FuncDecl)
+			if !ok {
+				return true
+			}
+			funcMetrics, err := a.parser.CalculateFunctionMetrics(ctx, funcDecl, fset, file)
+			if err != nil {
+				return false
+			}
+			if result := rule.Check(ctx, funcMetrics, config); result != nil {
+				if result.FilePath == "" {
+					result.FilePath = filePath
+				}
+				results = append(results, *result)
+			}
+			return true
+		})
+	}
+	return results
 }
 
 // SupportedExtensions returns the file extensions supported by this analyzer
