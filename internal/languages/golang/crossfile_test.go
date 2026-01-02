@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/CiaranMcAleer/AgentLint/internal/core"
@@ -340,7 +341,7 @@ func AnotherPublic() {
 	// Exported functions should not be flagged, only unexported ones that aren't called
 	for _, r := range results {
 		// Check that no exported function is flagged
-		if contains(r.Message, "PublicFunction") || contains(r.Message, "AnotherPublic") {
+		if strings.Contains(r.Message, "PublicFunction") || strings.Contains(r.Message, "AnotherPublic") {
 			t.Errorf("Exported function should not be flagged: %s", r.Message)
 		}
 	}
@@ -384,9 +385,9 @@ func main() {
 
 	// Test/Benchmark/Example functions should not be flagged
 	for _, r := range results {
-		if contains(r.Message, "TestHelper") ||
-			contains(r.Message, "BenchmarkHelper") ||
-			contains(r.Message, "ExampleUsage") {
+		if strings.Contains(r.Message, "TestHelper") ||
+			strings.Contains(r.Message, "BenchmarkHelper") ||
+			strings.Contains(r.Message, "ExampleUsage") {
 			t.Errorf("Test/Benchmark/Example function should not be flagged: %s", r.Message)
 		}
 	}
@@ -473,7 +474,7 @@ func main() {
 
 	// init() should not be flagged, and setupConfig is called from init
 	for _, r := range results {
-		if contains(r.Message, "init") {
+		if strings.Contains(r.Message, "init") {
 			t.Errorf("init function should not be flagged: %s", r.Message)
 		}
 	}
@@ -484,18 +485,4 @@ func main() {
 			t.Errorf("Unexpected orphan: %s", r.Message)
 		}
 	}
-}
-
-// Helper function
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
