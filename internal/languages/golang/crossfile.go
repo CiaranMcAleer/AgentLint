@@ -100,55 +100,68 @@ func (a *CrossFileAnalyzer) analyzeFile(filePath string) error {
 	defer a.mu.Unlock()
 
 	a.functions[filePath] = make(map[string]*FunctionInfo)
-	pkgName := ""
-	if f.Name != nil {
-		pkgName = f.Name.Name
-	}
+	pkgName := a.getPackageName(f)
 
-	// First pass: collect all function and method declarations
-	ast.Inspect(f, func(n ast.Node) bool {
-		switch node := n.(type) {
-		case *ast.FuncDecl:
-			receiverType := getReceiverTypeName(node)
-			isMethod := receiverType != ""
-
-			funcInfo := &FunctionInfo{
-				Name:     node.Name.Name,
-				File:     filePath,
-				Exported: node.Name.IsExported(),
-				IsMain:   node.Name.Name == "main",
-				IsTest:   strings.HasPrefix(node.Name.Name, "Test") || strings.HasSuffix(node.Name.Name, "Test"),
-				IsInit:   node.Name.Name == "init",
-				IsMethod: isMethod,
-				Receiver: receiverType,
-				Line:     a.fset.Position(node.Pos()).Line,
-				Package:  pkgName,
-			}
-
-			if isMethod {
-				// Store methods by receiver type
-				if a.methods[receiverType] == nil {
-					a.methods[receiverType] = make(map[string]*FunctionInfo)
-				}
-				a.methods[receiverType][node.Name.Name] = funcInfo
-			} else {
-				a.functions[filePath][node.Name.Name] = funcInfo
-			}
-		}
-		return true
-	})
-
-	// Second pass: collect all calls and references
-	ast.Inspect(f, func(n ast.Node) bool {
-		switch node := n.(type) {
-		case *ast.FuncDecl:
-			callerName := node.Name.Name
-			a.collectCallsFromNode(filePath, callerName, node.Body)
-		}
-		return true
-	})
+	a.collectDeclarations(f, filePath, pkgName)
+	a.collectCalls(f, filePath)
 
 	return nil
+}
+
+// getPackageName extracts the package name from a parsed file
+func (a *CrossFileAnalyzer) getPackageName(f *ast.File) string {
+	if f.Name != nil {
+		return f.Name.Name
+	}
+	return ""
+}
+
+// collectDeclarations collects all function and method declarations from a file
+func (a *CrossFileAnalyzer) collectDeclarations(f *ast.File, filePath, pkgName string) {
+	ast.Inspect(f, func(n ast.Node) bool {
+		if node, ok := n.(*ast.FuncDecl); ok {
+			a.registerFunction(node, filePath, pkgName)
+		}
+		return true
+	})
+}
+
+// registerFunction registers a function or method declaration
+func (a *CrossFileAnalyzer) registerFunction(node *ast.FuncDecl, filePath, pkgName string) {
+	receiverType := getReceiverTypeName(node)
+	isMethod := receiverType != ""
+
+	funcInfo := &FunctionInfo{
+		Name:     node.Name.Name,
+		File:     filePath,
+		Exported: node.Name.IsExported(),
+		IsMain:   node.Name.Name == "main",
+		IsTest:   strings.HasPrefix(node.Name.Name, "Test") || strings.HasSuffix(node.Name.Name, "Test"),
+		IsInit:   node.Name.Name == "init",
+		IsMethod: isMethod,
+		Receiver: receiverType,
+		Line:     a.fset.Position(node.Pos()).Line,
+		Package:  pkgName,
+	}
+
+	if isMethod {
+		if a.methods[receiverType] == nil {
+			a.methods[receiverType] = make(map[string]*FunctionInfo)
+		}
+		a.methods[receiverType][node.Name.Name] = funcInfo
+	} else {
+		a.functions[filePath][node.Name.Name] = funcInfo
+	}
+}
+
+// collectCalls collects all function calls from a file
+func (a *CrossFileAnalyzer) collectCalls(f *ast.File, filePath string) {
+	ast.Inspect(f, func(n ast.Node) bool {
+		if node, ok := n.(*ast.FuncDecl); ok {
+			a.collectCallsFromNode(filePath, node.Name.Name, node.Body)
+		}
+		return true
+	})
 }
 
 // getReceiverTypeName extracts the receiver type name from a function declaration
@@ -237,56 +250,68 @@ func (a *CrossFileAnalyzer) recordMethodCall(filePath, caller, methodName string
 }
 
 func (a *CrossFileAnalyzer) FindUnusedFunctions() []core.Result {
-	var results []core.Result
-
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	// Check regular functions
+	results := a.findUnusedRegularFunctions()
+	results = append(results, a.findUnusedMethods()...)
+	return results
+}
+
+// findUnusedRegularFunctions finds unused regular (non-method) functions
+func (a *CrossFileAnalyzer) findUnusedRegularFunctions() []core.Result {
+	var results []core.Result
 	for filePath, funcs := range a.functions {
 		for name, funcInfo := range funcs {
-			if a.isIgnoredFunction(funcInfo) {
+			if a.isIgnoredFunction(funcInfo) || a.isCalled(funcInfo) {
 				continue
 			}
-
-			if !a.isCalled(funcInfo) {
-				results = append(results, core.Result{
-					RuleID:     "cross-file-unused-function",
-					RuleName:   "Cross-File Unused Function",
-					Category:   "orphaned",
-					Severity:   "warning",
-					FilePath:   filePath,
-					Line:       funcInfo.Line,
-					Message:    fmt.Sprintf("Function '%s' is not called anywhere in the project", name),
-					Suggestion: "Review if this function is needed or if it should be exported/called",
-				})
-			}
+			results = append(results, a.buildUnusedFunctionResult(filePath, name, funcInfo))
 		}
 	}
+	return results
+}
 
-	// Check methods
+// findUnusedMethods finds unused methods
+func (a *CrossFileAnalyzer) findUnusedMethods() []core.Result {
+	var results []core.Result
 	for _, methods := range a.methods {
 		for name, funcInfo := range methods {
-			if a.isIgnoredFunction(funcInfo) {
+			if a.isIgnoredFunction(funcInfo) || a.isMethodCalled(funcInfo) {
 				continue
 			}
-
-			if !a.isMethodCalled(funcInfo) {
-				results = append(results, core.Result{
-					RuleID:     "cross-file-unused-method",
-					RuleName:   "Cross-File Unused Method",
-					Category:   "orphaned",
-					Severity:   "warning",
-					FilePath:   funcInfo.File,
-					Line:       funcInfo.Line,
-					Message:    fmt.Sprintf("Method '%s' on receiver '%s' is not called anywhere in the project", name, funcInfo.Receiver),
-					Suggestion: "Review if this method is needed or if it implements an interface",
-				})
-			}
+			results = append(results, a.buildUnusedMethodResult(name, funcInfo))
 		}
 	}
-
 	return results
+}
+
+// buildUnusedFunctionResult creates a result for an unused function
+func (a *CrossFileAnalyzer) buildUnusedFunctionResult(filePath, name string, funcInfo *FunctionInfo) core.Result {
+	return core.Result{
+		RuleID:     "cross-file-unused-function",
+		RuleName:   "Cross-File Unused Function",
+		Category:   "orphaned",
+		Severity:   "warning",
+		FilePath:   filePath,
+		Line:       funcInfo.Line,
+		Message:    fmt.Sprintf("Function '%s' is not called anywhere in the project", name),
+		Suggestion: "Review if this function is needed or if it should be exported/called",
+	}
+}
+
+// buildUnusedMethodResult creates a result for an unused method
+func (a *CrossFileAnalyzer) buildUnusedMethodResult(name string, funcInfo *FunctionInfo) core.Result {
+	return core.Result{
+		RuleID:     "cross-file-unused-method",
+		RuleName:   "Cross-File Unused Method",
+		Category:   "orphaned",
+		Severity:   "warning",
+		FilePath:   funcInfo.File,
+		Line:       funcInfo.Line,
+		Message:    fmt.Sprintf("Method '%s' on receiver '%s' is not called anywhere in the project", name, funcInfo.Receiver),
+		Suggestion: "Review if this method is needed or if it implements an interface",
+	}
 }
 
 func (a *CrossFileAnalyzer) isIgnoredFunction(funcInfo *FunctionInfo) bool {

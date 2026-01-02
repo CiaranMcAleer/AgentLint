@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/CiaranMcAleer/AgentLint/internal/core"
 )
 
 // TestCrossFileAnalyzer_NoFalsePositivesForMethodCalls ensures method calls are tracked
@@ -194,59 +196,59 @@ func process(fn func()) {
 // TestCrossFileAnalyzer_DetectsRealOrphans ensures truly unused functions are detected
 func TestCrossFileAnalyzer_DetectsRealOrphans(t *testing.T) {
 	tmpDir := t.TempDir()
+	writeOrphanTestFile(t, tmpDir)
 
+	results := analyzeForOrphans(t, tmpDir)
+
+	verifyOrphanCount(t, results, 2)
+	verifyExpectedOrphans(t, results, []string{
+		"Function 'orphanedFunction' is not called anywhere in the project",
+		"Function 'anotherOrphan' is not called anywhere in the project",
+	})
+}
+
+func writeOrphanTestFile(t *testing.T, tmpDir string) {
+	t.Helper()
 	mainFile := filepath.Join(tmpDir, "main.go")
-	err := os.WriteFile(mainFile, []byte(`package main
+	content := `package main
 
-func main() {
-	usedFunction()
-}
-
-func usedFunction() {
-	_ = "I am used"
-}
-
-func orphanedFunction() {
-	_ = "Nobody calls me"
-}
-
-func anotherOrphan() {
-	_ = "I am also unused"
-}
-`), 0644)
-	if err != nil {
+func main() { usedFunction() }
+func usedFunction() { _ = "I am used" }
+func orphanedFunction() { _ = "Nobody calls me" }
+func anotherOrphan() { _ = "I am also unused" }
+`
+	if err := os.WriteFile(mainFile, []byte(content), 0644); err != nil {
 		t.Fatalf("Failed to write main.go: %v", err)
 	}
+}
 
+func analyzeForOrphans(t *testing.T, tmpDir string) []core.Result {
+	t.Helper()
 	analyzer := NewCrossFileAnalyzer()
 	if err := analyzer.AnalyzeDirectory(context.Background(), tmpDir); err != nil {
 		t.Fatalf("Failed to analyze directory: %v", err)
 	}
+	return analyzer.FindUnusedFunctions()
+}
 
-	results := analyzer.FindUnusedFunctions()
-
-	// Should find exactly 2 orphaned functions
-	if len(results) != 2 {
-		t.Errorf("Expected 2 orphaned functions, got %d", len(results))
+func verifyOrphanCount(t *testing.T, results []core.Result, expected int) {
+	t.Helper()
+	if len(results) != expected {
+		t.Errorf("Expected %d orphaned functions, got %d", expected, len(results))
 		for _, r := range results {
 			t.Logf("Found: %s", r.Message)
 		}
 	}
+}
 
-	// Verify the correct functions are detected
+func verifyExpectedOrphans(t *testing.T, results []core.Result, expectedOrphans []string) {
+	t.Helper()
 	orphanNames := make(map[string]bool)
 	for _, r := range results {
 		if r.RuleID == "cross-file-unused-function" {
-			// Extract function name from message
 			orphanNames[r.Message] = true
 		}
 	}
-
-	expectedOrphans := []string{
-		"Function 'orphanedFunction' is not called anywhere in the project",
-		"Function 'anotherOrphan' is not called anywhere in the project",
-	}
-
 	for _, expected := range expectedOrphans {
 		if !orphanNames[expected] {
 			t.Errorf("Expected to find orphan: %s", expected)
